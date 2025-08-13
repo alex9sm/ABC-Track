@@ -404,7 +404,7 @@ func ScrapeUserStore(zipcode string) ([]StoreResult, error) {
 	}
 
 	if len(results) == 0 {
-		fmt.Println("No stores found.")
+		fmt.Println("No stores found")
 	} else {
 		fmt.Printf("Found %d stores\n", len(results))
 		jsonData, _ := json.MarshalIndent(results, "", "  ")
