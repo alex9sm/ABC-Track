@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
+	"os/exec"
 	"regexp"
 	"strings"
 	"time"
@@ -19,6 +21,29 @@ type StoreResult struct {
 	Address        string `json:"address"`
 	Phone          string `json:"phone"`
 	Hours          string `json:"hours"`
+}
+
+// setupVirtualDisplay sets up a virtual display for headless servers
+func setupVirtualDisplay() (*exec.Cmd, error) {
+	// Check if DISPLAY is already set
+	if os.Getenv("DISPLAY") != "" {
+		return nil, nil // Display already available
+	}
+
+	// Set up virtual display
+	os.Setenv("DISPLAY", ":99")
+
+	// Start Xvfb
+	cmd := exec.Command("Xvfb", ":99", "-screen", "0", "1920x1080x24")
+	err := cmd.Start()
+	if err != nil {
+		return nil, fmt.Errorf("failed to start Xvfb: %v", err)
+	}
+
+	// Wait a moment for Xvfb to initialize
+	time.Sleep(2 * time.Second)
+
+	return cmd, nil
 }
 
 func cleanAddress(rawAddress string) string {
@@ -61,14 +86,33 @@ func cleanHours(rawHours string) string {
 }
 
 func ScrapeUserStore(zipcode string) ([]StoreResult, error) {
+	// Setup virtual display for VPS environments
+	xvfbCmd, err := setupVirtualDisplay()
+	if err != nil {
+		log.Printf("Warning: Could not setup virtual display: %v", err)
+		log.Printf("Attempting to run without virtual display...")
+	}
+
+	// Cleanup virtual display when done
+	if xvfbCmd != nil {
+		defer func() {
+			if xvfbCmd.Process != nil {
+				xvfbCmd.Process.Kill()
+			}
+		}()
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
-		chromedp.Flag("headless", false),
+		chromedp.Flag("headless", false), // Keep non-headless as required
 		chromedp.Flag("disable-blink-features", "AutomationControlled"),
 		chromedp.Flag("exclude-switches", "enable-automation"),
 		chromedp.Flag("disable-extensions", false),
+		chromedp.Flag("no-sandbox", true),            // Important for VPS environments
+		chromedp.Flag("disable-dev-shm-usage", true), // Prevents /dev/shm issues
+		chromedp.Flag("disable-gpu", false),          // Keep GPU enabled for non-headless
 		chromedp.UserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"),
 	)
 
@@ -81,7 +125,7 @@ func ScrapeUserStore(zipcode string) ([]StoreResult, error) {
 	var results []StoreResult
 	targetURL := "https://www.abc.virginia.gov/stores"
 
-	err := chromedp.Run(ctx,
+	err = chromedp.Run(ctx,
 		chromedp.Navigate(targetURL),
 
 		chromedp.ActionFunc(func(ctx context.Context) error {
