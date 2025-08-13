@@ -10,7 +10,7 @@ import (
 	"github.com/chromedp/chromedp"
 )
 
-func main() {
+func Test() {
 	// Create context with longer timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -47,37 +47,35 @@ func main() {
 			for i := 0; i < maxWaits; i++ {
 				var currentTitle string
 				chromedp.Title(&currentTitle).Do(ctx)
-				
+
 				if currentTitle != "Just a moment..." && currentTitle != "" {
 					fmt.Printf("Page loaded! New title: %s\n", currentTitle)
 					break
 				}
-				
+
 				fmt.Printf("Still waiting... (attempt %d/%d)\n", i+1, maxWaits)
 				time.Sleep(3 * time.Second)
 			}
 			return nil
 		}),
 
-		
-
 		// Page loaded successfully, now wait for dynamic content
 		chromedp.ActionFunc(func(ctx context.Context) error {
-			
+
 			// First, let's see what's actually on the page
 			var bodyHTML string
 			chromedp.OuterHTML("body", &bodyHTML, chromedp.ByQuery).Do(ctx)
-			
+
 			// Check if we can find any Coveo-related elements
 			coveoElements := []string{
 				".coveo-result-list-container",
-				".CoveoSearchInterface", 
+				".CoveoSearchInterface",
 				".CoveoResult",
 				".coveo-card-layout",
 				"[class*='coveo']",
 				"[class*='Coveo']",
 			}
-			
+
 			for _, selector := range coveoElements {
 				var nodes []*cdp.Node
 				err := chromedp.Nodes(selector, &nodes, chromedp.ByQueryAll).Do(ctx)
@@ -87,7 +85,7 @@ func main() {
 					fmt.Printf("No elements found for selector '%s'\n", selector)
 				}
 			}
-			
+
 			return nil
 		}),
 
@@ -96,27 +94,26 @@ func main() {
 			chromedp.Evaluate(`window.scrollTo(0, document.body.scrollHeight)`, nil).Do(ctx)
 			return nil
 		}),
-		
 
 		// Wait longer for Coveo to initialize and load results
 		chromedp.ActionFunc(func(ctx context.Context) error {
-			
+
 			maxWaits := 15 // 15 * 2 seconds = 30 seconds
 			for i := 0; i < maxWaits; i++ {
 				var resultNodes []*cdp.Node
 				err := chromedp.Nodes(".CoveoResult", &resultNodes, chromedp.ByQueryAll).Do(ctx)
-				
+
 				if err == nil && len(resultNodes) > 0 {
 					break
 				}
-				
+
 				// Also check for the specific structure from your HTML
 				err = chromedp.Nodes(".coveo-card-layout.CoveoResult", &resultNodes, chromedp.ByQueryAll).Do(ctx)
 				if err == nil && len(resultNodes) > 0 {
 					fmt.Printf("Found %d card layout elements!\n", len(resultNodes))
 					break
 				}
-				
+
 				fmt.Printf("Waiting for results... (attempt %d/%d)\n", i+1, maxWaits)
 				time.Sleep(2 * time.Second)
 			}
@@ -125,29 +122,29 @@ func main() {
 
 		// Try multiple extraction approaches
 		chromedp.ActionFunc(func(ctx context.Context) error {
-			
-			approaches := []struct{
-				name string
+
+			approaches := []struct {
+				name   string
 				script string
 			}{
 				{
-					"Simple search", 
+					"Simple search",
 					`Array.from(document.querySelectorAll('.coveo-card-layout.CoveoResult .product-header h4')).map(el => el.textContent.trim()).filter(name => name.length > 0)`,
 				},
 				{
-					"Any h4 in CoveoResult", 
+					"Any h4 in CoveoResult",
 					`Array.from(document.querySelectorAll('.CoveoResult h4')).map(el => el.textContent.trim()).filter(name => name.length > 0)`,
 				},
 				{
-					"Any product header h4", 
+					"Any product header h4",
 					`Array.from(document.querySelectorAll('.product-header h4')).map(el => el.textContent.trim()).filter(name => name.length > 0)`,
 				},
 				{
-					"All h4 elements", 
+					"All h4 elements",
 					`Array.from(document.querySelectorAll('h4')).map(el => el.textContent.trim()).filter(name => name.length > 5)`,
 				},
 			}
-			
+
 			for _, approach := range approaches {
 				var results []string
 				err := chromedp.Evaluate(approach.script, &results).Do(ctx)
@@ -159,7 +156,7 @@ func main() {
 					fmt.Printf("%s: No results\n", approach.name)
 				}
 			}
-			
+
 			return nil
 		}),
 	)
